@@ -1,12 +1,14 @@
 import { env } from '../config/env'
 import { TrendLine } from '../components/Charts'
 import { Badge, KV, Notice } from '../components/style-atoms'
-import { weeklyAgencyTrend, weeklyTrendLabel } from '../domain/mock'
+import { practiceTrend } from '../domain/mock'
 import { useRfr } from '../state/RfrContext'
 
-/** 档案页：记录 / 对方设定 / 变化 */
+/** 档案页：记录 / 练习设定 / 由真实记录算出的变化 */
 export function ArchiveView({ onBack }: { onBack: () => void }) {
   const r = useRfr()
+  const trend = practiceTrend(r.archive)
+  const realCount = r.archive.filter((a) => !a.isSample).length
 
   return (
     <section className="view is-active" id="view-archive">
@@ -31,19 +33,19 @@ export function ArchiveView({ onBack }: { onBack: () => void }) {
                       {a.date} · {a.frictionEvents.join(' / ')} · {a.scenarioCount} 个场景 · 第 {a.version} 版
                     </div>
                   </div>
-                  <Badge variant="outline">已匿名</Badge>
+                  <Badge variant={a.isSample ? 'outline' : 'default'}>
+                    {a.isSample ? env.ui.archiveSample : env.ui.archiveLocal}
+                  </Badge>
                 </div>
               ))
             ) : (
-              <Notice>记录已清空，可以重新开始。</Notice>
+              <Notice>还没有记录，先做一次练习。</Notice>
             )}
 
             <div className="row-wrap mt-24">
-              <button type="button" className="btn-ghost" onClick={onBack}>
-                返回
-              </button>
+              <button type="button" className="btn-ghost" onClick={onBack}>返回</button>
               <button type="button" className="btn-dark" onClick={() => r.openPanel(3)}>
-                {env.panel.tabs[3] ?? '管理'} →
+                {env.panel.tabs[3] ?? '管理'}
               </button>
             </div>
           </div>
@@ -51,27 +53,32 @@ export function ArchiveView({ onBack }: { onBack: () => void }) {
           {env.features.weeklyTrend ? (
             <div className="card pad-card stagger-item">
               <div className="script-label">这几周</div>
-              <div className="card-title">{weeklyTrendLabel}</div>
-              <div className="card-desc mb-16">
-                类似场景里，你主动开口的比例。
-              </div>
-              <TrendLine values={weeklyAgencyTrend} labels={['W1', 'W2', 'W3', 'W4']} />
-              <div className="divider" />
-              <div className="stat-grid">
-                <div className="stat-box">
-                  <div className="stat-value">{r.archive.length}</div>
-                  <div className="stat-label">档案数</div>
+              <div className="card-title">{env.ui.trendTitle}</div>
+              {trend.sufficient ? (
+                <>
+                  <div className="card-desc mb-16">按每次练习的主动程度排，不是预测。</div>
+                  <TrendLine values={trend.values} labels={trend.labels} />
+                  <div className="divider" />
+                  <div className="stat-grid">
+                    <div className="stat-box">
+                      <div className="stat-value">{realCount}</div>
+                      <div className="stat-label">练习次数</div>
+                    </div>
+                    <div className="stat-box">
+                      <div className="stat-value">v{r.roleCard.version}</div>
+                      <div className="stat-label">角色卡版本</div>
+                    </div>
+                    <div className="stat-box">
+                      <div className="stat-value">{trend.values[trend.values.length - 1]}</div>
+                      <div className="stat-label">最近一次</div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-16">
+                  <Notice>{env.ui.trendEmpty}</Notice>
                 </div>
-                <div className="stat-box">
-                  <div className="stat-value">v{r.roleCard.version}</div>
-                  <div className="stat-label">角色卡版本</div>
-                </div>
-                <div className="stat-box">
-                  <div className="stat-value">{weeklyAgencyTrend[weeklyAgencyTrend.length - 1]}%</div>
-                  <div className="stat-label">最近主动表达率</div>
-                </div>
-              </div>
-              <div className="field-hint mt-16">更多数据在群体页。</div>
+              )}
             </div>
           ) : null}
         </div>
@@ -83,7 +90,7 @@ export function ArchiveView({ onBack }: { onBack: () => void }) {
                 <div>
                   <div className="script-label">练习里的对方</div>
                   <div className="card-title">对方的样子</div>
-                  <div className="card-desc">只用来让场景保持一致。</div>
+                  <div className="card-desc">只是练习设定，不是真实统计。</div>
                 </div>
                 <Badge variant="acid">第 {r.roleCard.version} 版</Badge>
               </div>
@@ -103,13 +110,9 @@ export function ArchiveView({ onBack }: { onBack: () => void }) {
                 <KV k={p.label} v={p.value} key={p.label} />
               ))}
 
-              <div className="mt-16">
-                <Notice>{r.roleCard.memorySummary}</Notice>
-              </div>
+              <div className="mt-16"><Notice>{r.roleCard.memorySummary}</Notice></div>
               <div className="field-hint mt-16">
-                {r.feedbackConsent
-                  ? '已授权，反馈会微调上面的数值。'
-                  : '未授权，数值不会变。'}
+                {r.feedbackConsent ? '已授权，反馈会微调上面的数值。' : '未授权，数值不会变。'}
               </div>
             </div>
           ) : null}
@@ -117,9 +120,8 @@ export function ArchiveView({ onBack }: { onBack: () => void }) {
           <div className="card pad-card stagger-item">
             <div className="script-label">关于隐私</div>
             <div className="field-hint mt-8">{env.compliance.disclaimerFull}</div>
-            <div className="field-hint mt-8">
-              {env.compliance.hotlineName} · {env.compliance.hotlineNumber}
-            </div>
+            <div className="field-hint mt-8">{env.compliance.hotlineName} · {env.compliance.hotlineNumber}</div>
+            <div className="field-hint mt-8">记录只存在这台设备，清除浏览器数据即清空。</div>
           </div>
         </div>
       </div>

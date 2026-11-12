@@ -63,7 +63,7 @@ const initialView: ViewId = enabledViews.includes(initialViewRaw) ? initialViewR
 const consentConfigured = bool('VITE_FEEDBACK_CONSENT_DEFAULT', false)
 if (consentConfigured) {
   envWarnings.push(
-    'PRD §7.1：单独明示同意不得默认勾选。VITE_FEEDBACK_CONSENT_DEFAULT=true 已被强制回退为 false。',
+    '单独授权不得默认勾选。VITE_FEEDBACK_CONSENT_DEFAULT=true 已被强制回退为 false。',
   )
 }
 const feedbackConsentDefault = false
@@ -77,8 +77,9 @@ if (scenarioCount < minScenarioCount) {
 export const env = {
   app: {
     name: str('VITE_APP_NAME', 'RFR · 关系摩擦预演器'),
-    version: str('VITE_APP_VERSION', '0.1.0-mvp'),
+    version: str('VITE_APP_VERSION', '0.1.0'),
     tagline: str('VITE_APP_TAGLINE', '先预演，再开口'),
+    heroCtaGate: str('VITE_HERO_CTA_GATE', '先确认年龄'),
     heroLine1: str('VITE_HERO_LINE_1', 'Where'),
     heroEm1: str('VITE_HERO_EM_1', 'friction'),
     heroLine2: str('VITE_HERO_LINE_2', 'meets'),
@@ -99,9 +100,9 @@ export const env = {
     enabled: enabledViews,
     labels: navLabels,
     initial: initialView,
-    transitionMs: num('VITE_TRANSITION_DURATION_MS', 600, 100, 3000),
-    holdMs: num('VITE_TRANSITION_HOLD_MS', 100, 0, 2000),
-    releaseMs: num('VITE_TRANSITION_RELEASE_MS', 600, 100, 3000),
+    transitionMs: num('VITE_TRANSITION_DURATION_MS', 240, 80, 3000),
+    holdMs: num('VITE_TRANSITION_HOLD_MS', 40, 0, 2000),
+    releaseMs: num('VITE_TRANSITION_RELEASE_MS', 240, 80, 3000),
   },
 
   api: {
@@ -127,6 +128,12 @@ export const env = {
     complianceBadge: bool('VITE_ENABLE_COMPLIANCE_BADGE', true),
     ageGate: bool('VITE_ENABLE_AGE_GATE', true),
     quickPanel: bool('VITE_ENABLE_QUICK_PANEL', true),
+    seedDemoData: bool('VITE_SEED_DEMO_DATA', false),
+  },
+
+  /** 本机演示持久化：仅浏览器本地，不上传；版本号变更会清空旧键 */
+  storage: {
+    version: num('VITE_STORAGE_VERSION', 2, 1, 99),
   },
 
   flow: {
@@ -197,6 +204,9 @@ export const env = {
     batchLabels: list('VITE_GROUP_BATCH_LABELS', ['第 1 批', '第 2 批', '第 3 批']),
     notice: str('VITE_GROUP_REPORT_NOTICE', '只看整体比例。'),
     discussionGuide: str('VITE_GROUP_DISCUSSION_GUIDE', '把选择当成当时还能怎么做。'),
+    sampleBadge: str('VITE_GROUP_SAMPLE_BADGE', '演示样例 · 非真实统计'),
+    sampleLabel: str('VITE_GROUP_SAMPLE_LABEL', '样例规模'),
+    demoNotice: str('VITE_GROUP_DEMO_NOTICE', '这是演示视图，数字不是真实统计。'),
   },
 
   /** 快捷面板：账户 / 付费 / 设置 / 管理的全部文案与开关 */
@@ -244,9 +254,55 @@ export const env = {
     manageNote: str('VITE_PANEL_MANAGE_NOTE', '导出在浏览器本地生成'),
     lockTitle: str('VITE_PANEL_LOCK_TITLE', '本次陪练尚未解锁'),
     lockDesc: str('VITE_PANEL_LOCK_DESC', '解锁后就能看到怎么说。'),
-    lockButton: str('VITE_PANEL_LOCK_BUTTON', '去解锁 →'),
+    lockButton: str('VITE_PANEL_LOCK_BUTTON', '去解锁'),
+    /* O-07：解锁前必须有价格确认，且未登录不能凭空拿到付费方案 */
+    payConfirmTitle: str('VITE_PANEL_PAY_CONFIRM_TITLE', '确认一下'),
+    payConfirmDesc: str('VITE_PANEL_PAY_CONFIRM_DESC', '演示付费 · 不产生真实订单'),
+    payConfirmYes: str('VITE_PANEL_PAY_CONFIRM_YES', '确认解锁'),
+    payConfirmCancel: str('VITE_PANEL_PAY_CONFIRM_CANCEL', '再想想'),
+    payNeedSignIn: str('VITE_PANEL_PAY_NEED_SIGNIN', '先填个昵称（演示登录）'),
+    /* O-10：未接线开关必须如实标注 */
+    setActive: str('VITE_PANEL_SET_ACTIVE', '当前演示已生效'),
+    setNotWired: str('VITE_PANEL_SET_NOT_WIRED', '后端阶段启用，当前演示未生效'),
+    setRetention: str('VITE_PANEL_SET_RETENTION', '原文保留'),
+    setDeleteSla: str('VITE_PANEL_SET_SLA', '删除时限'),
+    setRewrite: str('VITE_PANEL_SET_REWRITE', '纠错上限'),
+  },
+
+  /** 界面短文案：结论、出题依据、脚本适配、样例标识（一律白话，不带术语） */
+  ui: {
+    blockAge: str('VITE_BLOCK_AGE', '请先完成年龄确认'),
+    blockEvent: str('VITE_BLOCK_EVENT', '请至少选一类情况'),
+    guardInline: str('VITE_GUARD_INLINE', '这条内容我们没法用于出题。'),
+    intakeBasis: str('VITE_INTAKE_BASIS', '选一选你遇到的情况，我们据此出题。'),
+    intakeTwoHint: str('VITE_INTAKE_TWO_HINT', '这两点会影响题目。'),
+    noAnswerHint: str('VITE_REHEARSAL_NO_ANSWER', '没有标准答案，按第一反应选。'),
+    basis: str('VITE_REHEARSAL_BASIS', '按：{basis} 选了 {n} 题'),
+    transfer: str('VITE_REHEARSAL_TRANSFER', '换一种情况'),
+    construct: str('VITE_REHEARSAL_CONSTRUCT', '这一题想看的是：{construct}'),
+    profileMixed: str('VITE_PROFILE_MIXED', '这几次不太一样'),
+    profileMixedHint: str('VITE_PROFILE_MIXED_HINT', '没有哪一类占多数，先不下单一结论。'),
+    consistency: str('VITE_PROFILE_CONSISTENCY', '一致性'),
+    consistencyHint: str('VITE_PROFILE_CONSISTENCY_HINT', '只表示几次选择像不像，不代表测得准不准。'),
+    distribution: str('VITE_PROFILE_DISTRIBUTION', '几次选择分别靠近'),
+    scriptBased: str('VITE_SCRIPT_BASED', '基于刚才 {n} 次选择'),
+    scriptFocus: str('VITE_SCRIPT_FOCUS', '本次只针对：{primary}'),
+    scriptSwitch: str('VITE_SCRIPT_SWITCH', '换一件事'),
+    scriptLowAgency: str('VITE_SCRIPT_LOW_AGENCY', '不用一次说完，先发一句就够。'),
+    scriptLowConstructive: str('VITE_SCRIPT_LOW_CONSTRUCTIVE', '先缓一下，等语气平了再说这句。'),
+    scriptMixed: str('VITE_SCRIPT_MIXED', '这几次选择不太一样，先挑最容易做到的那句。'),
+    scriptStopEarly: str('VITE_SCRIPT_STOP_EARLY', '一有想争辩的冲动，就先停，别急着发第二条。'),
+    archiveSample: str('VITE_ARCHIVE_SAMPLE', '样例 · 已脱敏'),
+    archiveLocal: str('VITE_ARCHIVE_LOCAL', '本机记录'),
+    trendEmpty: str('VITE_ARCHIVE_TREND_EMPTY', '还没有足够记录，先做几次练习。'),
+    trendTitle: str('VITE_ARCHIVE_TREND_TITLE', '每次练习的主动程度'),
   },
 } as const
+
+/* O-10：定义但未接线到业务逻辑的配置，在开发期如实告警，避免界面暗示「已生效」 */
+envWarnings.push(
+  'VITE_RAW_TEXT_RETENTION_DAYS / VITE_DELETE_SLA_HOURS / VITE_MAX_REWRITE / VITE_SSE_ENABLED 属于后端阶段配置，当前演示未接线，界面须标注。',
+)
 
 export type AppConfig = typeof env
 

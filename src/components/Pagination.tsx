@@ -3,10 +3,12 @@ import { env, type ViewId } from '../config/env'
 export function Pagination({
   views,
   active,
+  busy = false,
   onNavigate,
 }: {
   views: ViewId[]
   active: ViewId
+  busy?: boolean
   onNavigate: (v: ViewId) => void
 }) {
   return (
@@ -17,6 +19,7 @@ export function Pagination({
           key={v}
           className={`page-btn${v === active ? ' active' : ''}`}
           data-target={v}
+          aria-busy={busy}
           onClick={() => onNavigate(v)}
         >
           {env.views.labels[v]}

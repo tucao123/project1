@@ -14,17 +14,19 @@ export function GroupView() {
           <div className="card pad-card stagger-item">
             <div className="row-between mb-16">
               <div>
-                <div className="script-label">给老师和管理员看</div>
+                <div className="script-label">给老师和管理员看 · 演示视图</div>
                 <div className="card-title">大家怎么选的</div>
                 <div className="card-desc">只看整体，不看个人</div>
               </div>
-              <Badge variant="acid">仅整体数据</Badge>
+              <Badge variant="acid">{env.group.sampleBadge}</Badge>
             </div>
 
-            <div className="stat-grid mb-24">
+            <Notice variant="acid">{env.group.demoNotice}</Notice>
+
+            <div className="stat-grid mb-24 mt-16">
               <div className="stat-box">
                 <div className="stat-value">{env.group.sampleSize}</div>
-                <div className="stat-label">参与人数</div>
+                <div className="stat-label">{env.group.sampleLabel}</div>
               </div>
               <div className="stat-box">
                 <div className="stat-value">{distribution.length}</div>
@@ -60,7 +62,7 @@ export function GroupView() {
           <div className="card pad-card stagger-item">
             <div className="row-between mb-8">
               <div className="script-label" style={{ marginBottom: 0 }}>几批人的变化</div>
-              <Badge variant="outline">占比</Badge>
+              <Badge variant="outline">样例数据</Badge>
             </div>
             <div className="card-desc mb-16">{groupTrendLabel}</div>
             <TrendLine values={withdrawalTrend} labels={env.group.batchLabels} />

@@ -74,14 +74,13 @@ const templates = (): ScriptTemplate[] => [
   },
 ]
 
-/** 把「那么我会…」这段交给打字机的衬线斜体强调 */
+/** 把「我就…」之后的具体动作交给打字机的衬线斜体强调 */
 function highlightOf(text: string): [number, number] {
   const marker = '我就'
   const start = text.indexOf(marker)
   if (start < 0) return [0, 0]
-  const s = start + marker.length
-  const e = text.indexOf('', s)
-  return e > s ? [s, e] : [s, text.length]
+  // 强调区间固定为「我就」之后到句末；旧实现以空串为目标做二次查找，结果恒等于起点，属无效分支
+  return [start + marker.length, text.length]
 }
 
 function lowExpectation(intake: IntakeData): boolean {
@@ -93,11 +92,50 @@ function lowExpectation(intake: IntakeData): boolean {
   )
 }
 
-export function buildScript(intake: IntakeData, _profile: CopingProfile): ActionScript {
-  const primary = intake.frictionEvents[0] ?? env.domain.frictionEvents[0] ?? '临时取消'
+/**
+ * 画像适配层（O-06）
+ * 模板主干不变，只按刚才的选择调整开场、停止条件与提示：
+ * 偏被动 → 降到最小可执行动作；偏带情绪 → 先降温、提前停；
+ * 混合画像 → 不追加个性化话术，只给通用脚本。
+ */
+function adaptScript(base: ActionScript, profile: CopingProfile): ActionScript {
+  const lead: string[] = []
+  let stopCondition = base.stopCondition
+  let note = base.note
+
+  if (!profile.mixed && profile.agency < 50) lead.push(env.ui.scriptLowAgency)
+  if (!profile.mixed && profile.constructiveness < 50) {
+    lead.push(env.ui.scriptLowConstructive)
+    stopCondition = env.ui.scriptStopEarly
+  }
+  if (profile.mixed) note = env.ui.scriptMixed
+
+  if (!lead.length && !profile.mixed) return base
+  const actionText = lead.length ? `${lead.join('')}${base.actionText}` : base.actionText
+  return {
+    ...base,
+    actionText,
+    highlight: highlightOf(actionText),
+    stopCondition,
+    note,
+  }
+}
+
+export function buildScript(
+  intake: IntakeData,
+  profile: CopingProfile,
+  focus?: string,
+): ActionScript {
+  const events = intake.frictionEvents.length
+    ? intake.frictionEvents
+    : [env.domain.frictionEvents[0] ?? '临时取消']
+  const primary = focus && events.includes(focus) ? focus : events[0]
   const idx = Math.max(0, env.domain.frictionEvents.indexOf(primary))
   const tpl = templates()[Math.min(idx, templates().length - 1)]
+  const basedOn = env.ui.scriptBased.replace('{n}', String(profile.total))
+  const focusText = env.ui.scriptFocus.replace('{primary}', primary)
 
+  // 低期望分支优先级最高：不推话术，也不做画像适配
   if (lowExpectation(intake)) {
     const action =
       '先别急着开口。写下两句就行：我还想要什么、我愿意花多少力气。想清楚了再决定要不要说。'
@@ -113,18 +151,24 @@ export function buildScript(intake: IntakeData, _profile: CopingProfile): Action
         '如果一想到要开口就发紧，这次就先不说，留到下次；这里只记下你的感受。',
       stopCondition: STOP_CONDITION,
       feasibilityFirst: true,
-      note:
-        '现在先帮你理清楚，不急着给话术。',
+      note: '现在先帮你理清楚，不急着给话术。',
+      focus: focusText,
+      basedOn,
     }
   }
 
-  return {
-    actionText: tpl.action,
-    highlight: highlightOf(tpl.action),
-    branches: tpl.branches,
-    fallback: tpl.fallback,
-    stopCondition: STOP_CONDITION,
-    feasibilityFirst: false,
-    note: NOTE,
-  }
+  return adaptScript(
+    {
+      actionText: tpl.action,
+      highlight: highlightOf(tpl.action),
+      branches: tpl.branches,
+      fallback: tpl.fallback,
+      stopCondition: STOP_CONDITION,
+      feasibilityFirst: false,
+      note: NOTE,
+      focus: focusText,
+      basedOn,
+    },
+    profile,
+  )
 }

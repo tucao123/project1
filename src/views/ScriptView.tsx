@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { env } from '../config/env'
 import { Typewriter } from '../components/motion'
-import { Notice } from '../components/style-atoms'
+import { Badge, Notice } from '../components/style-atoms'
 import { useRfr } from '../state/RfrContext'
 
-/** 陪练页：一句话 + 备用做法 + 反馈 */
+/** 陪练页：一句话 + 备用做法 + 事后反馈（反馈只在解锁后出现） */
 export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () => void }) {
   const r = useRfr()
   const [revealed, setRevealed] = useState(false)
@@ -24,13 +24,9 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
             <div className="card pad-card stagger-item">
               <div className="script-label">第四步 · 陪练</div>
               <div className="profile-title">先完成一次预演</div>
-              <p className="card-desc mt-16">
-                做完预演，这里会给你一句可以试着说的话。
-              </p>
+              <p className="card-desc mt-16">做完预演，这里会给你一句可以试着说的话。</p>
               <div className="mt-32">
-                <button type="button" className="btn-primary" onClick={onBack}>
-                  返回
-                </button>
+                <button type="button" className="btn-primary" onClick={onBack}>返回</button>
               </div>
             </div>
           </div>
@@ -46,9 +42,7 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
           <div className="card script-card stagger-item" style={{ padding: 40 }}>
             <div className="row-between mb-24">
               <div>
-                <div className="script-label" style={{ marginBottom: 0 }}>
-                  开口前，先练一遍
-                </div>
+                <div className="script-label" style={{ marginBottom: 0 }}>开口前，先练一遍</div>
                 <div className="card-desc">{env.flow.scriptHint}</div>
               </div>
               <button
@@ -74,7 +68,10 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
               </div>
             ) : (
               <div className="script-note">
-                <div className="script-label">可以这样说</div>
+                <div className="row-between mb-16">
+                  <div className="script-label" style={{ marginBottom: 0 }}>可以这样说</div>
+                  <Badge variant="outline">{script.basedOn}</Badge>
+                </div>
                 <Typewriter
                   text={script.actionText}
                   highlight={script.highlight}
@@ -82,6 +79,25 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
                   speed={32}
                   onDone={() => setRevealed(true)}
                 />
+
+                {/* 多选事件时明确标注本次针对哪一件，并允许切换 */}
+                <div className="script-focus mt-16">
+                  <span className="micro-label">{script.focus}</span>
+                  {r.intake.frictionEvents.length > 1 ? (
+                    <div className="chip-row mt-8">
+                      {r.intake.frictionEvents.map((ev) => (
+                        <button
+                          type="button"
+                          key={ev}
+                          className={`chip${r.scriptFocus === ev ? ' is-selected' : ''}`}
+                          onClick={() => r.refocusScript(ev)}
+                        >
+                          {ev}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
 
                 <div className="divider" />
                 <div className="branch-grid">
@@ -95,17 +111,11 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
                       <span>{b.key}，{b.text}</span>
                     </div>
                   ))}
-                  <div
-                    className={`script-sub${revealed ? ' visible' : ''}`}
-                    style={{ transitionDelay: '0.4s', marginBottom: 0 }}
-                  >
+                  <div className={`script-sub${revealed ? ' visible' : ''}`} style={{ transitionDelay: '0.4s', marginBottom: 0 }}>
                     <strong>备用做法</strong>
                     <span>{script.fallback}</span>
                   </div>
-                  <div
-                    className={`script-sub${revealed ? ' visible' : ''}`}
-                    style={{ transitionDelay: '0.5s', marginBottom: 0 }}
-                  >
+                  <div className={`script-sub${revealed ? ' visible' : ''}`} style={{ transitionDelay: '0.5s', marginBottom: 0 }}>
                     <strong>什么时候停</strong>
                     <span>{script.stopCondition}</span>
                   </div>
@@ -115,9 +125,7 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
 
             {script.feasibilityFirst && r.scriptUnlocked ? (
               <div className="mt-24">
-                <Notice variant="acid">
-                  先想清楚值不值得，再决定要不要开口。
-                </Notice>
+                <Notice variant="acid">先想清楚值不值得，再决定要不要开口。</Notice>
               </div>
             ) : null}
 
@@ -126,9 +134,16 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
                 <Notice variant="acid">{script.note}</Notice>
               </div>
             ) : null}
+
+            {/* 导航常驻：锁定态也能离开本页 */}
+            <div className="row-wrap mt-24">
+              <button type="button" className="btn-dark" onClick={onNext}>看档案</button>
+              <button type="button" className="btn-ghost" onClick={onBack}>返回</button>
+            </div>
           </div>
 
-          {env.features.feedback ? (
+          {/* O-07：还没看到一句话时，不问「说了吗」 */}
+          {env.features.feedback && r.scriptUnlocked ? (
             <div className="card pad-card stagger-item">
               <div className="script-label">事后记一笔</div>
               <div className="card-title">这次动作，后来执行了吗？</div>
@@ -138,16 +153,12 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
                   type="button"
                   className={`chip${r.feedback.executed === true ? ' is-selected' : ''}`}
                   onClick={() => r.submitFeedback(true, note)}
-                >
-                  说了
-                </button>
+                >说了</button>
                 <button
                   type="button"
                   className={`chip${r.feedback.executed === false ? ' is-selected' : ''}`}
                   onClick={() => r.submitFeedback(false, note)}
-                >
-                  没说
-                </button>
+                >没说</button>
               </div>
               <textarea
                 className="text-area"
@@ -157,17 +168,7 @@ export function ScriptView({ onBack, onNext }: { onBack: () => void; onNext: () 
                 onChange={(e) => setNote(e.target.value)}
               />
               <div className="field-hint mt-8">
-                {r.feedbackConsent
-                  ? '已授权，会更新角色卡'
-                  : '未授权，只记在这里'}
-              </div>
-              <div className="row-wrap mt-24">
-                <button type="button" className="btn-dark" onClick={onNext}>
-                  看档案
-                </button>
-                <button type="button" className="btn-ghost" onClick={onBack}>
-                  返回
-                </button>
+                {r.feedbackConsent ? '已授权，会更新角色卡' : '未授权，只记在这里'}
               </div>
             </div>
           ) : null}

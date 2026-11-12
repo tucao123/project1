@@ -1,4 +1,12 @@
 import { env } from '../config/env'
+import {
+  contextFromIntake,
+  hashString,
+  scoreSeed,
+  sessionSeedOf,
+  shuffleWithSeed,
+} from './context'
+import { goldOf } from './scenario-gold'
 import type {
   ConstructTarget,
   EvlnCode,
@@ -9,14 +17,15 @@ import type {
 } from './types'
 
 /**
- * 构念驱动的场景库（学术指导 §4.3）
+ * 构念驱动的场景库
  * ------------------------------------------------------------------
- * · 每个场景显式标注：欲测构念、不确定性来源、强度、期望应对模式、干扰项理由
- * · 选项措辞由 env 固定为「你最可能会怎么做？」——测实际倾向，不测应然判断
- * · 每个场景必须携带「对方未按预期回应」的障碍分支（MCII，§4.4）
- * · 强度由低到高分级暴露（SIT），跳过关系破裂 / 公开羞辱类高强度场景
- * · 上下文补齐 prior_responsiveness 与 message_urgency（2025 CHB 研究，§4.3）
- * · 种子场景的 expectedPattern 仅供 F-S1 回归评估，不在 C 端界面呈现
+ * · 每个场景显式标注：欲测构念、不确定性来源、强度、干扰项理由
+ * · 选项措辞固定为「你最可能会怎么做？」；分类标签不进入可见 DOM
+ * · 选项顺序按场景 id + 本次填写做确定性洗牌，避免 A→D 由好到差
+ * · 每个场景必须携带「对方未按预期回应」的障碍分支
+ * · 强度由易到难分级；承诺水平低时不出最难的题
+ * · 上下文的「平时回复 / 急不急 / 关系 / 边界」由用户填写生成，不写死
+ * · 期望模式标注独立在 scenario-gold.ts，与界面数据分离
  */
 
 export const EVLN_META: Record<
@@ -39,7 +48,6 @@ interface ScenarioSeed {
   context: string[]
   obstacle: string
   choices: Record<EvlnCode, string>
-  expectedPattern: EvlnCode
   distractor: string
 }
 
@@ -66,7 +74,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '说「没事，那下次吧」，把已经出门这件事咽回去，等对方主动再约。',
       neglect: '不回，或者隔很久回一个「哦」，让这件事自己过去。',
     },
-    expectedPattern: 'voice',
     distractor: '「没事，那下次吧」是维持表面和谐的强干扰项，用来区分建设性表达与被动迁就。',
   },
   {
@@ -85,7 +92,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '说「没事没事，你忙你的」，然后在心里把「我补你」那句话划掉。',
       neglect: '不再提，也不再约，等对方想起来；同时默默把周末安排改成别的。',
     },
-    expectedPattern: 'voice',
     distractor: '「别多想」是典型的模糊线索，用于观察用户是否把负性解读当成事实。',
   },
   {
@@ -104,7 +110,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '什么也不说，照旧在群里配合气氛，之后也不再提这个约定。',
       neglect: '退出群聊讨论，接下来几天对所有共同安排都不表态。',
     },
-    expectedPattern: 'voice',
     distractor: '公开场合的轻度失礼会放大「我有没有资格开口」的自我不确定性。',
   },
 
@@ -125,7 +130,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '把话题挑得更有趣一点，替对方找「可能只是忙」的解释，不提自己的感受。',
       neglect: '也不主动发了，等对方先来找你；期间反复看对方有没有更新动态。',
     },
-    expectedPattern: 'voice',
     distractor: '热度下降属模糊线索，考察用户是否先拆分「事实」与「解读」（认知重评，§2.2）。',
   },
   {
@@ -144,7 +148,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '赶紧说「哈哈 没事没事」，把刚才那句也算成自己的多想，继续不提。',
       neglect: '撤回消息，之后几天只用最简短的词回复。',
     },
-    expectedPattern: 'voice',
     distractor: '「我是不是太敏感」的自我怀疑是核心犹豫，检验能否在不上纲上线的前提下表达。',
   },
   {
@@ -163,7 +166,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '对朋友说「没有啦，都挺正常的」，然后继续照原来的频率发消息。',
       neglect: '不再主动，也不回应朋友的追问，让关系自然淡下去。',
     },
-    expectedPattern: 'voice',
     distractor: '「我们谈谈关系」在低承诺关系中属施压措辞，是必须被排除的干扰项（§4.6）。',
   },
 
@@ -184,7 +186,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '说「没事啦，也不是什么大事」，但之后把想说的话都收回去。',
       neglect: '不解释也不提，从此只聊无关紧要的话题。',
     },
-    expectedPattern: 'voice',
     distractor: '「不是什么大事」是社会性否定痛苦的典型说法，用于检验边界表达是否被自我取消（§2.6）。',
   },
   {
@@ -203,7 +204,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '点头说「也是，那算了」，回去之后反复想自己是不是反应过度。',
       neglect: '不再纠正，也不再分享任何私事，但表面照旧。',
     },
-    expectedPattern: 'voice',
     distractor: '「后果不严重」不等于边界没被越过，检验用户能否区分功利后果与情绪性后果。',
   },
   {
@@ -222,7 +222,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '赶紧说「开玩笑的啦」，并把「别往外说」这句话收回。',
       neglect: '不回应这句话，此后只用最表面的方式相处，慢慢不再出现。',
     },
-    expectedPattern: 'voice',
     distractor: '「我们不是朋友吗」把边界请求上升为关系审判，是低承诺情境里最强的迁就诱因。',
   },
 
@@ -243,7 +242,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '说「不急不急，你忙」，然后一直把那条约时间的消息留着不撤。',
       neglect: '把消息撤回，也不再提时间，假装这个约定本来就不存在。',
     },
-    expectedPattern: 'voice',
     distractor: '既往响应基线显著改变延迟容忍阈值，考察用户是否把「比平时慢」直接读成拒绝。',
   },
   {
@@ -262,7 +260,6 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '接住新话题，把昨天那段当作自己说多了，之后再不写长消息。',
       neglect: '已读不回一两天，用同样的沉默回应。',
     },
-    expectedPattern: 'voice',
     distractor: '「删掉追问」是执行失败而非技能缺陷（SIT 第一阶段），场景用于识别触发线索。',
   },
   {
@@ -281,13 +278,16 @@ const SEEDS: ScenarioSeed[] = [
       loyalty: '继续把周末空着，怕自己一问就显得太需要这段关系。',
       neglect: '不再问，也不再安排，但在心里给这段关系记上一笔。',
     },
-    expectedPattern: 'voice',
     distractor: '留 / 走矛盾（stay-leave ambivalence）不是冷漠，选项避免把「放下」写成居高临下的退出。',
   },
 ]
 
-function buildScenario(seed: ScenarioSeed, index: number): Scenario {
-  const options: ScenarioOption[] = (Object.keys(EVLN_META) as EvlnCode[]).map((code) => {
+const INTENSITY_LABEL: Record<Intensity, string> = {
+  low: '轻松', mid: '有点难', 'mid-high': '更难点', high: '很难',
+}
+
+function buildScenario(seed: ScenarioSeed, index: number, intake: IntakeData): Scenario {
+  const unshuffled: ScenarioOption[] = (Object.keys(EVLN_META) as EvlnCode[]).map((code) => {
     const meta = EVLN_META[code]
     return {
       id: `${seed.id}-${code}`,
@@ -298,6 +298,8 @@ function buildScenario(seed: ScenarioSeed, index: number): Scenario {
       constructiveness: meta.constructiveness,
     }
   })
+  // 同一会话 / 同一场景顺序稳定；不同场景顺序不同，且不泄露分类
+  const options = shuffleWithSeed(unshuffled, hashString(seed.id) ^ sessionSeedOf(intake))
   return {
     id: seed.id,
     stressorType: seed.stressorType,
@@ -306,52 +308,102 @@ function buildScenario(seed: ScenarioSeed, index: number): Scenario {
     uncertaintySource: seed.uncertaintySource,
     constructTarget: seed.constructTarget,
     narrative: seed.narrative,
-    context: seed.context,
+    context: contextFromIntake(intake, seed),
     obstacle: seed.obstacle,
     options,
-    expectedPattern: seed.expectedPattern,
+    expectedPattern: goldOf(seed.id),
     distractorRationale: seed.distractor,
     image: env.app.sceneImages[index % env.app.sceneImages.length] ?? '',
   }
 }
 
-const INTENSITY_LABEL: Record<Intensity, string> = {
-  low: '轻松', mid: '有点难', 'mid-high': '更难点', high: '很难',
+/** 全库按当前填写生成（不在模块层缓存，避免两次填写串味） */
+export function buildScenarioBank(intake: IntakeData): Scenario[] {
+  return SEEDS.map((seed, index) => buildScenario(seed, index, intake))
 }
 
-export const SCENARIO_BANK: Scenario[] = SEEDS.map(buildScenario)
+interface Ranked {
+  seed: ScenarioSeed
+  index: number
+  score: number
+  wanted: boolean
+}
 
-/** Supervisor 动态选场景：同类结构相关 + 强度由低到高 + 覆盖不同压力事件 */
+const byRank = (a: Ranked, b: Ranked) =>
+  b.score - a.score ||
+  Number(b.wanted) - Number(a.wanted) ||
+  a.seed.id.localeCompare(b.seed.id)
+
+/**
+ * 动态选场景（原 Supervisor 的前端等价实现）
+ * · 打分消费 constructTarget / uncertaintySource / 7 个表单字段
+ * · 承诺低时压低强度上限；较急时优先回复类场景
+ * · 单事件补足一题「换一种情况」，避免三题同源
+ */
 export function selectScenarios(intake: IntakeData): Scenario[] {
+  const count = env.flow.scenarioCount
   const wanted = intake.frictionEvents.length
     ? intake.frictionEvents
     : [env.domain.frictionEvents[0] ?? '临时取消']
+  const lowCommitment = intake.commitmentLevel === (env.domain.commitmentLevels[0] ?? '低')
+  const levels = env.flow.intensities.slice(0, count)
+  const allowed = lowCommitment
+    ? levels.filter((l) => l === 'low' || l === 'mid')
+    : levels
 
-  const pool = SCENARIO_BANK.filter(
-    (s) => wanted.includes(s.stressorType) && (env.flow.allowHighIntensity || s.intensity !== 'high'),
-  )
-  const source = pool.length ? pool : SCENARIO_BANK
-  const levels = env.flow.intensities.slice(0, env.flow.scenarioCount)
-  const picked: Scenario[] = []
-  const usedTypes = new Set<string>()
+  const ranked: Ranked[] = SEEDS
+    .map((seed, index) => ({
+      seed,
+      index,
+      score: scoreSeed(seed, intake),
+      wanted: wanted.includes(seed.stressorType),
+    }))
+    .filter((x) => env.flow.allowHighIntensity || x.seed.intensity !== 'high')
+    .filter((x) => allowed.includes(x.seed.intensity))
+
+  const picked: Ranked[] = []
+  const transfers = new Set<string>()
 
   for (const level of levels) {
-    const candidates = source.filter((s) => s.intensity === level && !picked.includes(s))
-    const ordered = [...candidates].sort(
-      (a, b) => Number(usedTypes.has(a.stressorType)) - Number(usedTypes.has(b.stressorType)),
-    )
-    const hit = ordered[0]
-    if (hit) {
-      picked.push(hit)
-      usedTypes.add(hit.stressorType)
+    if (picked.length >= count) break
+    const hit = ranked
+      .filter((x) => x.seed.intensity === level && !picked.includes(x))
+      .sort(byRank)[0]
+    if (hit) picked.push(hit)
+  }
+
+  // 补足：仍只在允许的强度内挑，且优先换一类情况
+  const fill = [...ranked]
+    .filter((x) => !picked.includes(x))
+    .sort((a, b) => byRank(a, b) || Number(a.wanted) - Number(b.wanted))
+  for (const candidate of fill) {
+    if (picked.length >= count) break
+    if (new Set(picked.map((x) => x.seed.stressorType)).size === 1) {
+      const other = fill.find((x) => !wanted.includes(x.seed.stressorType) && !picked.includes(x))
+      if (other && !picked.includes(other)) {
+        picked.push(other)
+        transfers.add(other.seed.id)
+        continue
+      }
+    }
+    picked.push(candidate)
+  }
+
+  // 全是同一类时，把最后一题换成别的压力事件
+  if (picked.length > 1 && new Set(picked.map((x) => x.seed.stressorType)).size === 1) {
+    const other = [...ranked]
+      .filter((x) => !wanted.includes(x.seed.stressorType) && !picked.includes(x))
+      .sort(byRank)[0]
+    if (other) {
+      picked[picked.length - 1] = other
+      transfers.add(other.seed.id)
     }
   }
 
-  for (const s of source) {
-    if (picked.length >= env.flow.scenarioCount) break
-    if (!picked.includes(s)) picked.push(s)
-  }
-  return picked.slice(0, env.flow.scenarioCount)
+  return picked.slice(0, count).map((x) => ({
+    ...buildScenario(x.seed, x.index, intake),
+    transfer: transfers.has(x.seed.id),
+  }))
 }
 
 export const CONSTRUCT_LABELS: Record<ConstructTarget, string> = {
@@ -360,3 +412,5 @@ export const CONSTRUCT_LABELS: Record<ConstructTarget, string> = {
   rejection_appraisal: '是不是被嫌弃了',
   boundary: '怎么把边界说清楚',
 }
+
+export const constructLabel = (target: ConstructTarget): string => CONSTRUCT_LABELS[target] ?? ''

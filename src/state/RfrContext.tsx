@@ -8,9 +8,10 @@ import {
 import { env } from '../config/env'
 import { guardOutputText, guardUserInput, type GuardVerdict } from '../domain/compliance'
 import { emptyProfile, buildProfile } from '../domain/evln'
-import { archiveHistory, initialRoleCard } from '../domain/mock'
+import { archiveHistory, emptyRoleCard, initialRoleCard, roleCardForSession } from '../domain/mock'
 import { buildScript } from '../domain/script'
 import { selectScenarios } from '../domain/scenarios'
+import { selectionBasis } from '../domain/context'
 import type {
   ActionScript,
   ArchiveEntry,
@@ -21,6 +22,7 @@ import type {
   Scenario,
 } from '../domain/types'
 import { emitSessionEvent } from '../services/session'
+import { clearRfrStorage, usePersistentState } from '../services/storage'
 
 interface FeedbackState {
   executed: boolean | null
@@ -45,6 +47,7 @@ interface RfrStore {
   scenarios: Scenario[]
   activeScenarioId: string | null
   setActiveScenarioId: (id: string) => void
+  basis: string
   responses: ResponseRecord[]
   chooseOption: (optionId: string, freeText: string) => void
   goToNextScenario: () => void
@@ -54,10 +57,13 @@ interface RfrStore {
   finishRehearsal: () => void
 
   script: ActionScript | null
+  /** 单一数据源：付费方案决定是否解锁，不再单独维护布尔值 */
   scriptUnlocked: boolean
   scriptRunId: number
-  unlockScript: () => void
+  scriptFocus: string
+  refocusScript: (focus: string) => void
   regenerateScript: () => void
+  purchase: (plan: Exclude<Plan, 'free'>, name?: string) => boolean
 
   feedbackConsent: boolean
   setFeedbackConsent: (v: boolean) => void
@@ -73,7 +79,6 @@ interface RfrStore {
 
   startRehearsal: () => boolean
 
-  /* 快捷面板：登录 / 付费 / 设置 / 管理 */
   panelOpen: boolean
   panelTab: number
   setPanelOpen: (v: boolean) => void
@@ -81,7 +86,6 @@ interface RfrStore {
   account: AccountState
   signIn: (name: string) => void
   signOut: () => void
-  choosePlan: (plan: Exclude<Plan, 'free'>) => void
 }
 
 const RfrContext = createContext<RfrStore | null>(null)
@@ -98,25 +102,58 @@ const initialIntake = (): IntakeData => ({
   ageConfirmed: !env.features.ageGate,
 })
 
+const emptyAccount = (): AccountState => ({ signedIn: false, name: '', plan: 'free' })
+
+/* 落盘前脱敏：原始自由文本绝不写入 localStorage */
+const stripIntake = (v: IntakeData) => ({ ...v, freeText: '' })
+const stripResponses = (v: ResponseRecord[]) => v.map((r) => ({ ...r, freeText: '' }))
+const stripFeedback = (v: FeedbackState): FeedbackState => ({ executed: v.executed, note: '' })
+
+/** 输出侧安全过滤覆盖脚本的每一段文本，新增适配文案也不能绕过 */
+function guardScript(raw: ActionScript): ActionScript {
+  const safeAction = guardOutputText(raw.actionText)
+  return {
+    ...raw,
+    actionText: safeAction,
+    highlight: safeAction === raw.actionText ? raw.highlight : [0, 0],
+    branches: raw.branches.map((b) => ({ ...b, key: guardOutputText(b.key), text: guardOutputText(b.text) })),
+    fallback: guardOutputText(raw.fallback),
+    stopCondition: guardOutputText(raw.stopCondition),
+    note: guardOutputText(raw.note),
+    focus: guardOutputText(raw.focus),
+    basedOn: guardOutputText(raw.basedOn),
+  }
+}
+
 export function RfrProvider({ children }: { children: ReactNode }) {
-  const [intake, setIntake] = useState<IntakeData>(initialIntake)
-  const [scenarios, setScenarios] = useState<Scenario[]>([])
-  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null)
-  const [responses, setResponses] = useState<ResponseRecord[]>([])
-  const [profile, setProfile] = useState<CopingProfile>(emptyProfile)
-  const [script, setScript] = useState<ActionScript | null>(null)
-  const [scriptUnlocked, setScriptUnlocked] = useState(!env.features.paidScript)
-  const [scriptRunId, setScriptRunId] = useState(0)
-  const [feedbackConsent, setFeedbackConsent] = useState<boolean>(
+  const [intake, setIntake] = usePersistentState<IntakeData>('intake', initialIntake, stripIntake)
+  const [scenarios, setScenarios] = usePersistentState<Scenario[]>('scenarios', [])
+  const [activeScenarioId, setActiveScenarioId] = usePersistentState<string | null>('active', null)
+  const [basis, setBasis] = usePersistentState<string>('basis', '')
+  const [responses, setResponses] = usePersistentState<ResponseRecord[]>('responses', [], stripResponses)
+  const [profile, setProfile] = usePersistentState<CopingProfile>('profile', emptyProfile)
+  const [script, setScript] = usePersistentState<ActionScript | null>('script', null)
+  const [scriptRunId, setScriptRunId] = usePersistentState<number>('scriptRun', 0)
+  const [scriptFocus, setScriptFocus] = usePersistentState<string>('scriptFocus', '')
+  const [feedbackConsent, setFeedbackConsent] = usePersistentState<boolean>(
+    'consent',
     env.compliance.feedbackConsentDefault,
   )
-  const [anonymizeEnabled, setAnonymizeEnabled] = useState(true)
-  const [feedback, setFeedback] = useState<FeedbackState>({ executed: null, note: '' })
-  const [roleCard, setRoleCard] = useState<RoleCard>(initialRoleCard)
-  const [archive, setArchive] = useState<ArchiveEntry[]>(archiveHistory)
+  // 后端阶段开关：当前演示未接线，默认关闭且界面置灰
+  const [anonymizeEnabled, setAnonymizeEnabled] = usePersistentState<boolean>('anonymize', false)
+  const [feedback, setFeedback] = usePersistentState<FeedbackState>(
+    'feedback',
+    { executed: null, note: '' },
+    stripFeedback,
+  )
+  const [roleCard, setRoleCard] = usePersistentState<RoleCard>(
+    'roleCard',
+    env.features.seedDemoData ? initialRoleCard : emptyRoleCard,
+  )
+  const [archive, setArchive] = usePersistentState<ArchiveEntry[]>('archive', archiveHistory)
+  const [account, setAccount] = usePersistentState<AccountState>('account', emptyAccount)
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelTab, setPanelTab] = useState(env.panel.defaultTab)
-  const [account, setAccount] = useState<AccountState>({ signedIn: false, name: '', plan: 'free' })
 
   const openPanel = (tab?: number) => {
     if (tab !== undefined) setPanelTab(tab)
@@ -133,6 +170,7 @@ export function RfrProvider({ children }: { children: ReactNode }) {
     setAccount((prev) => ({ ...prev, signedIn: false, name: '' }))
 
   const guard = useMemo(() => guardUserInput(intake.freeText), [intake.freeText])
+  const scriptUnlocked = !env.features.paidScript || account.plan !== 'free'
 
   const patchIntake = (patch: Partial<IntakeData>) =>
     setIntake((prev) => ({ ...prev, ...patch }))
@@ -143,10 +181,11 @@ export function RfrProvider({ children }: { children: ReactNode }) {
     if (guard.blocked || !intake.ageConfirmed || !intake.frictionEvents.length) return false
     const picked = selectScenarios(intake)
     setScenarios(picked)
+    setBasis(selectionBasis(intake))
     setResponses([])
     setProfile(emptyProfile())
     setScript(null)
-    setScriptUnlocked(!env.features.paidScript)
+    setScriptFocus(intake.frictionEvents[0] ?? '')
     setActiveScenarioId(picked[0]?.id ?? null)
     void emitSessionEvent(env.api.intake, { ...intake, scenario_count: picked.length })
     return true
@@ -180,20 +219,11 @@ export function RfrProvider({ children }: { children: ReactNode }) {
 
   const finishRehearsal = () => {
     const p = buildProfile(responses, scenarios)
-    const raw = buildScript(intake, p)
-    // 输出侧合规 Guard：命中即替换为固定话术，不让生成内容绕过规则拦截
-    const safeAction = guardOutputText(raw.actionText)
-    const safe: ActionScript = {
-      ...raw,
-      actionText: safeAction,
-      highlight: safeAction === raw.actionText ? raw.highlight : [0, 0],
-      branches: raw.branches.map((b) => ({ ...b, text: guardOutputText(b.text) })),
-      fallback: guardOutputText(raw.fallback),
-      stopCondition: guardOutputText(raw.stopCondition),
-    }
     setProfile(p)
-    setScript(safe)
+    setScript(guardScript(buildScript(intake, p, scriptFocus || undefined)))
     setScriptRunId((v) => v + 1)
+    const realCount = archive.filter((a) => !a.isSample).length + 1
+    setRoleCard((prev) => roleCardForSession(intake, prev, realCount))
     setArchive((prev) => [
       {
         id: `arc-${Date.now()}`,
@@ -203,31 +233,41 @@ export function RfrProvider({ children }: { children: ReactNode }) {
         profileLabel: p.label,
         scenarioCount: responses.length,
         version: roleCard.version,
+        agency: p.agency,
       },
       ...prev,
     ])
     void emitSessionEvent(env.api.profile, { profile: p, response_count: responses.length })
   }
 
-  const unlockScript = () => {
-    setScriptUnlocked(true)
-    setScriptRunId((v) => v + 1)
-    setAccount((prev) => (prev.plan === 'free' ? { ...prev, plan: 'single' } : prev))
-    void emitSessionEvent(env.api.script, { unlocked: true })
+  /** 多选事件时切换脚本针对的那一件事 */
+  const refocusScript = (focus: string) => {
+    if (!intake.frictionEvents.includes(focus)) return
+    setScriptFocus(focus)
+    if (profile.total > 0) {
+      setScript(guardScript(buildScript(intake, profile, focus)))
+      setScriptRunId((v) => v + 1)
+    }
   }
 
-  const choosePlan = (plan: Exclude<Plan, 'free'>) => {
-    setAccount((prev) => ({ ...prev, plan }))
-    setScriptUnlocked(true)
+  /** O-07：解锁必须先登录 + 价格确认，方案是解锁状态的唯一来源 */
+  const purchase = (plan: Exclude<Plan, 'free'>, name?: string): boolean => {
+    const clean = (name ?? '').trim().slice(0, 32)
+    if (!account.signedIn && !clean) return false
+    setAccount((prev) => ({
+      signedIn: true,
+      name: prev.signedIn ? prev.name : clean,
+      plan,
+    }))
     setScriptRunId((v) => v + 1)
     void emitSessionEvent(env.api.script, { plan, unlocked: true })
+    return true
   }
 
   const regenerateScript = () => setScriptRunId((v) => v + 1)
 
   const submitFeedback = (executed: boolean, note: string) => {
     setFeedback({ executed, note })
-    // 单独明示同意：只有开启授权时才微调角色卡参数（PRD §7.1）
     if (feedbackConsent && env.features.roleCard) {
       setRoleCard((prev) => ({
         ...prev,
@@ -266,18 +306,25 @@ export function RfrProvider({ children }: { children: ReactNode }) {
     URL.revokeObjectURL(url)
   }
 
+  /** 全量清空（含账户与本机存储），重置为干净空态，不重新注入样例 */
   const deleteAll = () => {
+    clearRfrStorage()
     setIntake(initialIntake())
     setScenarios([])
     setActiveScenarioId(null)
+    setBasis('')
     setResponses([])
     setProfile(emptyProfile())
     setScript(null)
-    setScriptUnlocked(!env.features.paidScript)
+    setScriptRunId(0)
+    setScriptFocus('')
     setFeedback({ executed: null, note: '' })
     setFeedbackConsent(env.compliance.feedbackConsentDefault)
-    setRoleCard(initialRoleCard())
+    setAnonymizeEnabled(false)
+    setRoleCard(emptyRoleCard())
     setArchive([])
+    setAccount(emptyAccount())
+    setPanelOpen(false)
   }
 
   const value: RfrStore = {
@@ -289,6 +336,7 @@ export function RfrProvider({ children }: { children: ReactNode }) {
     scenarios,
     activeScenarioId,
     setActiveScenarioId,
+    basis,
     responses,
     chooseOption,
     goToNextScenario,
@@ -298,8 +346,10 @@ export function RfrProvider({ children }: { children: ReactNode }) {
     script,
     scriptUnlocked,
     scriptRunId,
-    unlockScript,
+    scriptFocus,
+    refocusScript,
     regenerateScript,
+    purchase,
     feedbackConsent,
     setFeedbackConsent,
     anonymizeEnabled,
@@ -318,7 +368,6 @@ export function RfrProvider({ children }: { children: ReactNode }) {
     account,
     signIn,
     signOut,
-    choosePlan,
   }
 
   return <RfrContext.Provider value={value}>{children}</RfrContext.Provider>

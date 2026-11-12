@@ -124,7 +124,8 @@ body {
   min-height: 100vh;
   max-width: 1280px;
   margin: 0 auto;
-  padding: 64px 24px 160px;
+  /* 底部留白避开固定胶囊导航，滚动到底时主按钮不被遮挡 */
+  padding: 64px 24px 200px;
   display: none; /* 默认隐藏 */
   opacity: 0;
   transform: translateY(20px);
@@ -371,7 +372,7 @@ body {
   .gallery-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 640px) {
-  .view { padding: 24px 16px 140px; }
+  .view { padding: 24px 16px 180px; }
   .hero-card, .wave-card, .exhibition-card, .script-card, .settings-card, .data-card { padding: 24px; }
   .hero-card h1 { font-size: 36px; }
   .gallery-grid { grid-template-columns: 1fr; }
@@ -518,7 +519,7 @@ body {
 .obstacle-box { background: var(--black); color: rgba(255,255,255,0.85); border-radius: 16px; padding: 18px 20px; font-size: 12px; line-height: 1.7; }
 .obstacle-box strong { color: var(--acid); font-weight: 600; }
 
-/* ---------- 画像：EVLN 双维度象限 ---------- */
+/* ---------- 画像：两维象限 ---------- */
 .quadrant-wrap { padding: 8px 0 0; }
 .quadrant-svg { width: 100%; height: auto; display: block; }
 .quadrant-legend { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 20px; }
@@ -699,3 +700,52 @@ body {
   .quick-fab { top: 50px; right: 16px; padding: 9px 14px; font-size: 11px; }
   .quick-panel { top: auto; bottom: 86px; left: 16px; right: 16px; width: auto; max-height: 68vh; }
 }
+
+/* ==========================================================================
+   优化批次 A~C 新增组件：只复用上面的设计令牌，风格保持不变
+   ========================================================================== */
+
+/* 桌面：右栏长表单滚动时，左栏主卡保持在视口内 */
+@media (min-width: 1025px) {
+  #view-intake .col-left .hero-card { position: sticky; top: 72px; z-index: 2; }
+}
+/* 移动：首屏给年龄门禁让位，波形卡压缩 */
+@media (max-width: 640px) {
+  #view-intake .wave-card { padding: 18px 20px; }
+  #view-intake .wave-header { margin-bottom: 10px; }
+  #view-intake #waveCanvas { height: 48px; }
+  #view-intake .col-left .gate-card { margin-bottom: 0; }
+}
+
+/* 移动端顶栏只保留短品牌名 + 保护圆点，避免文字挤压 */
+.brand-short { display: none; }
+@media (max-width: 640px) {
+  .brand-long { display: none; }
+  .brand-short { display: inline; }
+}
+
+/* 预演页把进度卡收紧，让题板尽量进入首屏 */
+#view-rehearsal .col-left .data-card { padding: 28px 32px; gap: 16px; }
+@media (max-width: 640px) {
+  #view-rehearsal .col-left .data-card { padding: 20px; gap: 14px; }
+}
+
+/* 就地校验提示 / 出题依据 / 构念标签 */
+.hero-card [aria-live] .notice { margin: 12px 0 0; }
+#inlineGuard .notice + .notice { margin-top: 8px; }
+.basis-line {
+  font-size: 11px; line-height: 1.6; color: var(--gray-text);
+  background: var(--gray-light); border-radius: 12px; padding: 10px 12px;
+}
+.script-focus {
+  background: var(--gray-light); border-radius: 16px; padding: 14px 16px;
+}
+.script-focus .chip-row { margin-top: 10px; }
+.dist-list { margin-bottom: 8px; }
+
+/* 快捷面板：价格确认 / 未接线开关 */
+.qp-confirm { border: 1px solid rgba(0,0,0,0.08); }
+.qp-confirm-title { font-family: var(--serif); font-style: italic; font-size: 22px; }
+.toggle.is-disabled { opacity: 0.4; cursor: not-allowed; }
+.toggle-row.is-faded .toggle-text h4 { color: var(--gray-text); }
+.qp-body .toggle-row { gap: 12px; }
