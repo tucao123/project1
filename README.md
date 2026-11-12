@@ -1,12 +1,13 @@
 # RFR · 关系摩擦预演器 MVP
 
-按 `毕设prd.md`、`RFR_心理学文献支撑与学术指导.md`、`元现代风格.md`，以及 `RFR_优化方案与实施清单.md` 实现的前端可交互原型。
+按 `毕设prd.md`、`RFR_心理学文献支撑与学术指导.md`、`元现代风格.md`，以及 `RFR_优化方案与实施清单.md` 实现的前端可交互原型，外加一套可选的服务端骨架。
 
 ## 启动
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173/
+cp .env.example .env   # 本地配置，已被忽略；不复制也能用内置默认值
+npm run dev            # http://localhost:5173/
 ```
 
 `npm run build` 检查并构建；`npm run preview` 预览（4173）。改 `.env` 后要重启服务。
@@ -23,6 +24,9 @@ npm run dev        # http://localhost:5173/
 | `src/state/RfrContext.tsx` | 全局状态 |
 | `src/views/` | 六个页面 |
 | `tests/ux-regression.mjs` | 回归断言（优化清单 §9） |
+| `.env.server.example` | 服务端配置模板（复制为 `.env.server`，已被忽略） |
+| `docker-compose.yml` | MySQL 8 + Qdrant + FastAPI 一键编排 |
+| `server/` | FastAPI 骨架：配置、建表、向量库、模型适配、合规、接口 |
 
 技术：Vite + React + TypeScript。记录存本机浏览器，刷新不丢，不上传；清除浏览器数据即清空。
 
@@ -49,7 +53,31 @@ npm run dev        # http://localhost:5173/
 - `VITE_USE_MOCK=false` 会把记录发到 5 个接口；`VITE_ENABLE_QUICK_PANEL=false` 可关掉账户按钮。
 - `VITE_STORAGE_VERSION` 变更会清空旧键；原始自由文本不写入存储。
 - `VITE_SHOW_VIEW_NUMBERS` 控制底部导航的 `01…06` 序号，默认开启。
-- **密钥不要放 `.env`**：`VITE_` 变量会打进浏览器 JS 包，且 `.env` 已提交到公开仓库。后端密钥按 `.env.server.example` 复制为 `.env.server`（已忽略），由后端持有并转发大模型调用。
+- **密钥不要放 `.env`**：`VITE_` 变量会打进浏览器 JS 包，且 `.env` 曾被提交过（现已停止跟踪并忽略）。后端密钥按 `.env.server.example` 复制为 `.env.server`，由后端持有并转发大模型调用。
+- 服务端配置分 8 组（运行 / 模型 / MySQL / Qdrant / LangGraph / 可观测 / 合规 / B 端），由 `server/config.py` 类型化读取；`FEEDBACK_CONSENT_DEFAULT=true` 同样会被强制回退。
+
+## 接后端（可选）
+
+前端默认 `VITE_USE_MOCK=true`，纯本地演示，不依赖后端。按 PRD §9 起全套：
+
+```bash
+cp .env.server.example .env.server        # 本地文件，已被忽略
+docker compose --env-file .env.server up -d --build
+curl http://localhost:8000/health
+```
+
+在 `.env.server` 填 `LLM_API_KEY` 才启用真实模型；改前端 `.env` 的 `VITE_USE_MOCK=false` 才会把 5 个节点事件发到服务端。密钥留空时服务照样启动，`/health` 会如实列出每一条降级原因。
+
+`server/` 已配好：MySQL 8（`schema.sql` 含 JSON 列、生成列索引、`kg_edges` 边表 + 递归 CTE 证据回溯）、Qdrant（dense/sparse 命名向量、payload index、Hybrid Query + RRF）、Qwen-embedding3（显式 1024 维、≤20 分批次）、模型统一入口、规则级合规、脱敏聚合与一键删除。本机 3306 已被占用，compose 用宿主 **3307** 避让。
+
+只验证骨架、不装 AI 依赖也能跑：
+
+```bash
+python -m unittest discover -s server -p "test_*.py"   # 纯标准库配置单测
+pip install -r server/requirements.txt && uvicorn server.main:app --port 8000
+```
+
+`server/requirements-ai.txt`（LangGraph / checkpointer / FastEmbed）是完整流水线才需要的，缺包时自动降级。
 
 ## 回归验证
 
@@ -66,7 +94,8 @@ npm run test:ux      # 需要本机 Chrome；脚本内部会顺带跑一次 npm 
 ## 边界
 
 - 结果只描述刚才的几次选择，不判断性格，也不预测关系。
-- 登录和付费都是演示，不产生真实订单；导出是本机 JSON；删除只清本机，不涉及服务端。
-- 没有后端、没有大模型。12 个场景是自编种子，期望模式标注在 `scenario-gold.ts`，未提供效度证据。
+- 登录和付费都是演示，不产生真实订单；导出是本机 JSON；默认删除只清本机。
+- 服务端是**骨架**：MySQL / Qdrant / 模型已配置且可启动，但默认仍是纯前端演示；未填密钥不会调用真实模型。LangGraph 多 Agent、CRAG 纠错闭环、SSE 全链路、评分者信度与效标效度实验均未实现。
+- 12 个场景是自编种子，期望模式标注在 `scenario-gold.ts`，未提供效度证据。
 - 群体看板数字是静态样例；跨周趋势只在有 2 次以上真实练习后才出现。
 - 热线和法规信息按源文档配置，请自行核实现行有效性。

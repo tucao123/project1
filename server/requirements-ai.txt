@@ -1,0 +1,9 @@
+# PRD §11 完整流水线（LangGraph / CRAG / 递归 CTE / FastEmbed）时才需要
+# 安装：pip install -r server/requirements-ai.txt
+# 骨架默认不装；缺包时服务端自动降级，不影响启动与自检
+-r requirements.txt
+langchain-core>=0.3,<1.0
+langchain-openai>=0.2,<1.0
+langgraph>=0.2,<1.0
+langgraph-checkpoint-mysql>=0.1,<1.0
+fastembed>=0.4,<1.0

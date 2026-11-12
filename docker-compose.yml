@@ -1,0 +1,61 @@
+# PRD §9：Docker Compose 一键启动 MySQL 8 + Qdrant + FastAPI
+# 启动：docker compose --env-file .env.server up -d --build
+# 宿主 3307 映射 MySQL 3306，避开本机已占用的 3306。
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rfr_root_dev}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-rfr}
+      MYSQL_USER: ${MYSQL_USER:-rfr}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rfr_dev}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./server/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file:
+      - path: .env.server
+        required: false
+    environment:
+      # 容器内走服务名，覆盖 .env.server 里的 127.0.0.1
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-rfr}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rfr_dev}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-rfr}
+      QDRANT_URL: http://qdrant:6333
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  qdrant-data:
