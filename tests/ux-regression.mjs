@@ -376,6 +376,30 @@ async function run() {
   /* ---------- #17 连续切页不丢点击 ---------- */
   await page.evaluate(() => document.querySelector('.qp-close')?.click())
   await sleep(150)
+
+  const navNumbers = await page.evaluate(() =>
+    [...document.querySelectorAll('.page-btn .page-num')].map((n) => n.textContent.trim()),
+  )
+  check(17, '底部导航恢复 01–06 序号',
+    navNumbers.join(',') === '01,02,03,04,05,06', navNumbers.join(',') || '无序号')
+
+  // 逐帧采样幕布页码的透明度：切页变快后曾经因为淡入延迟过长而全程不可见
+  await page.evaluate(() => {
+    window.__rfrMaxPageOpacity = 0
+    window.__rfrPageLabel = ''
+    window.__rfrSampling = true
+    const tick = () => {
+      const el = document.getElementById('transitionText')
+      if (el) {
+        const o = parseFloat(getComputedStyle(el).opacity) || 0
+        if (o > window.__rfrMaxPageOpacity) window.__rfrMaxPageOpacity = o
+        if (el.textContent.trim()) window.__rfrPageLabel = el.textContent.trim()
+      }
+      if (window.__rfrSampling) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+
   const t0 = Date.now()
   await page.evaluate(() => document.querySelector('.page-btn[data-target="profile"]')?.click())
   await page.waitForFunction(() => document.querySelector('.page-btn.active')?.dataset.target === 'profile', { timeout: 3000 })
@@ -387,8 +411,15 @@ async function run() {
   })
   await sleep(1400)
   const finalView = await page.evaluate(() => document.querySelector('.page-btn.active')?.dataset.target)
+  const curtain = await page.evaluate(() => {
+    window.__rfrSampling = false
+    return { opacity: window.__rfrMaxPageOpacity, label: window.__rfrPageLabel }
+  })
   check(17, '连续点击 3 个导航项后停留在最后目标', finalView === 'group', `final=${finalView}`)
   check(17, '单次切页耗时 < 600ms', singleMs < 600, `${singleMs}ms`)
+  check(17, '快速切页时幕布页码确实可见',
+    curtain.opacity > 0.5 && /^\d{2}$/.test(curtain.label),
+    `opacity=${curtain.opacity.toFixed(2)} label=${curtain.label}`)
 
   /* ---------- #2 / #18 两种视口无横向溢出、按钮不被遮挡 ---------- */
   const viewIds = ['intake', 'rehearsal', 'profile', 'script', 'archive', 'group']

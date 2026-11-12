@@ -99,6 +99,7 @@ export const env = {
   views: {
     enabled: enabledViews,
     labels: navLabels,
+    showNumbers: bool('VITE_SHOW_VIEW_NUMBERS', true),
     initial: initialView,
     transitionMs: num('VITE_TRANSITION_DURATION_MS', 240, 80, 3000),
     holdMs: num('VITE_TRANSITION_HOLD_MS', 40, 0, 2000),

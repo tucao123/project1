@@ -13,7 +13,7 @@ export function Pagination({
 }) {
   return (
     <div className="pagination">
-      {views.map((v) => (
+      {views.map((v, i) => (
         <button
           type="button"
           key={v}
@@ -22,6 +22,9 @@ export function Pagination({
           aria-busy={busy}
           onClick={() => onNavigate(v)}
         >
+          {env.views.showNumbers ? (
+            <span className="page-num">{String(i + 1).padStart(2, '0')}</span>
+          ) : null}
           {env.views.labels[v]}
         </button>
       ))}

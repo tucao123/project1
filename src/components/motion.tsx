@@ -40,11 +40,20 @@ export function CurtainOverlay({
   durationMs?: number
 }) {
   const dur = { transitionDuration: `${durationMs}ms` }
+  // 幕布合拢变快后，页码的淡入延迟必须跟着缩短，否则还没显示幕布就散了
+  const delayMs = Math.round(durationMs * 0.15)
+  const fadeMs = Math.round(durationMs * 0.45)
   return (
     <div className={`transition-overlay${active ? ' is-active' : ''}`} id="transitionOverlay">
       <div className="curtain" style={dur} />
       <div className="curtain" style={dur} />
-      <div className="transition-text" id="transitionText">{label}</div>
+      <div
+        className="transition-text"
+        id="transitionText"
+        style={{ transitionDuration: `${fadeMs}ms`, transitionDelay: active ? `${delayMs}ms` : '0ms' }}
+      >
+        {label}
+      </div>
     </div>
   )
 }
